@@ -23,9 +23,9 @@ except Exception:
         # last resort: try LANCZOS or set to a numeric fallback
         _PIL_Image.ANTIALIAS = getattr(_PIL_Image, 'LANCZOS', 1)
 
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
+from moviepy.editor import concatenate_videoclips, AudioFileClip
 from moviepy.audio.fx.all import audio_loop
-from moviepy.video.fx.all import fadein, fadeout, resize, mirror_x, blackwhite
+from video_layout import choose_output_profile, build_styled_clip
 
 
 def find_images_in_dir(d):
@@ -44,16 +44,10 @@ def pick_random_audio(folder):
 def build_video(images, seconds, audio_path, out_path, effect):
     clips = []
     fade_dur = min(0.6, max(0.05, seconds * 0.2))
+    profile_name, target_size, profile_counts = choose_output_profile(images)
+    print(f'Output profile: {profile_name} {target_size} counts={profile_counts}')
     for p in images:
-        clip = ImageClip(p).set_duration(seconds)
-        if effect == 'Fade':
-            clip = clip.fx(fadein, fade_dur).fx(fadeout, fade_dur)
-        elif effect == 'Zoom':
-            clip = clip.resize(lambda t: 1 + 0.04 * t)
-        elif effect == 'Mirror':
-            clip = clip.fx(mirror_x)
-        elif effect == 'BlackWhite':
-            clip = clip.fx(blackwhite)
+        clip = build_styled_clip(p, seconds, effect, target_size, fade_dur)
         clips.append(clip)
     video = concatenate_videoclips(clips, method='compose')
     if audio_path:
@@ -110,10 +104,11 @@ def main():
     print(f'Images: {len(images)}  Audio: {audio_path or "(none)"}  Style: {args.effect}  Seconds/image: {args.seconds}  Out: {out}')
     # If effect is external style and repo present, try running external script
     external_styles = ['video','tk1','tk2','tk3','autotk','tkdemo']
+    external_enabled = os.environ.get('VG_ENABLE_EXTERNAL_STYLES') == '1'
     if args.effect in external_styles:
         repo = os.path.expanduser('~/video-generation-tools')
         script_candidates = [os.path.join(repo, 'scripts', f'{args.effect}.py'), os.path.join(repo, f'{args.effect}.py')]
-        script = next((s for s in script_candidates if os.path.isfile(s)), None)
+        script = next((s for s in script_candidates if os.path.isfile(s)), None) if external_enabled else None
         if script:
             # use images dir if provided or create temp dir
             if args.images_dir:
@@ -184,7 +179,8 @@ def main():
                 if not args.images_dir:
                     shutil.rmtree(tmp, ignore_errors=True)
         else:
-            # fallback mapping
+            if not external_enabled:
+                print('External styles disabled; using built-in fallback mapping')
             mapping = {'video':'Zoom','tk1':'Fade','tk2':'Zoom','tk3':'Mirror','autotk':'Fade','tkdemo':'Fade'}
             args.effect = mapping.get(args.effect,'None')
 
