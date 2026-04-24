@@ -52,9 +52,9 @@ except Exception:
     except Exception:
         _PIL_Image.ANTIALIAS = getattr(_PIL_Image, 'LANCZOS', 1)
 
-from moviepy.editor import ImageClip, concatenate_videoclips, AudioFileClip
+from moviepy.editor import concatenate_videoclips, AudioFileClip
 from moviepy.audio.fx.all import audio_loop
-from moviepy.video.fx.all import fadein, fadeout, resize, mirror_x, blackwhite
+from video_layout import choose_output_profile, build_styled_clip
 
 # minimal startup logging to /tmp for diagnosing missing UI elements in frozen app
 try:
@@ -252,9 +252,10 @@ class App(tk.Tk):
         try:
             # If effect is one of external styles and repo exists, try to run external script
             if effect in self.external_styles:
+                external_enabled = os.environ.get('VG_ENABLE_EXTERNAL_STYLES') == '1'
                 repo_path = os.path.expanduser('~/video-generation-tools')
                 script_candidates = [os.path.join(repo_path, 'scripts', f'{effect}.py'), os.path.join(repo_path, f'{effect}.py')]
-                script = next((s for s in script_candidates if os.path.isfile(s)), None)
+                script = next((s for s in script_candidates if os.path.isfile(s)), None) if external_enabled else None
                 if script:
                     # prepare temp images dir
                     tmp = tempfile.mkdtemp(prefix='vg-images-')
@@ -263,42 +264,83 @@ class App(tk.Tk):
                             ext = os.path.splitext(p)[1]
                             dst = os.path.join(tmp, f'{idx:04d}{ext}')
                             shutil.copy(p, dst)
-                        cmd = ['python3', script, '--input', tmp, '--audio', audio_path or '', '--output', out_path]
-                    # if script supports --beat or other params could be added
-                        # run external script
-                        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-                        if proc.returncode != 0:
-                            raise RuntimeError(f'External script failed:\n{proc.stdout}')
-                        self.status.config(text=f"Saved: {out_path}")
-                        messagebox.showinfo("Done", f"Video saved to:\n{out_path}")
-                        return
+                        # Probe script help and adapt arg names across different external scripts.
+                        help_proc = subprocess.run(
+                            ['python3', script, '--help'],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                        )
+                        help_text = (help_proc.stdout or '').lower()
+                        if '--img_dir' in help_text:
+                            img_flag = '--img_dir'
+                        elif '--img-dir' in help_text:
+                            img_flag = '--img-dir'
+                        else:
+                            img_flag = '--input'
+
+                        if '--music_dir' in help_text:
+                            audio_flag = '--music_dir'
+                        elif '--music-dir' in help_text:
+                            audio_flag = '--music-dir'
+                        else:
+                            audio_flag = '--audio'
+
+                        if '--output_file' in help_text:
+                            out_flag = '--output_file'
+                        elif '--output-file' in help_text:
+                            out_flag = '--output-file'
+                        else:
+                            out_flag = '--output'
+
+                        cmd = ['python3', script, img_flag, tmp, audio_flag, audio_path or '', out_flag, out_path]
+                        with open('/tmp/vg_run.log', 'a') as lg:
+                            lg.write(f'External script cmd: {" ".join(cmd)}\n')
+
+                        try:
+                            proc = subprocess.run(
+                                cmd,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                timeout=30,
+                            )
+                            with open('/tmp/vg_run.log', 'a') as lg:
+                                lg.write(proc.stdout or '')
+                            if proc.returncode == 0 and os.path.isfile(out_path):
+                                self.status.config(text=f"Saved: {out_path}")
+                                messagebox.showinfo("Done", f"Video saved to:\n{out_path}")
+                                return
+                            with open('/tmp/vg_run.log', 'a') as lg:
+                                lg.write(f'External script failed or no output, fallback style for {effect}\n')
+                        except subprocess.TimeoutExpired:
+                            with open('/tmp/vg_run.log', 'a') as lg:
+                                lg.write(f'External script timed out after 30s, fallback style for {effect}\n')
                     finally:
                         shutil.rmtree(tmp, ignore_errors=True)
+
                 else:
-                    # fallback: map external style to a built-in approximation
-                    mapping = {
-                        'video': 'Zoom',
-                        'tk1': 'Fade',
-                        'tk2': 'Zoom',
-                        'tk3': 'Mirror',
-                        'autotk': 'Fade',
-                        'tkdemo': 'Fade'
-                    }
-                    effect = mapping.get(effect, 'None')
+                    with open('/tmp/vg_run.log', 'a') as lg:
+                        lg.write(f'External styles disabled, fallback style for {effect}\n')
+
+                # fallback: map external style to a built-in approximation
+                mapping = {
+                    'video': 'Zoom',
+                    'tk1': 'Fade',
+                    'tk2': 'Zoom',
+                    'tk3': 'Mirror',
+                    'autotk': 'Fade',
+                    'tkdemo': 'Fade'
+                }
+                effect = mapping.get(effect, 'None')
 
             clips = []
             fade_dur = min(0.6, max(0.05, duration * 0.2))
+            profile_name, target_size, profile_counts = choose_output_profile(images)
+            with open('/tmp/vg_run.log', 'a') as lg:
+                lg.write(f'Output profile: {profile_name} {target_size} counts={profile_counts}\\n')
             for p in images:
-                clip = ImageClip(p).set_duration(duration)
-                if effect == "Fade":
-                    clip = clip.fx(fadein, fade_dur).fx(fadeout, fade_dur)
-                elif effect == "Zoom":
-                    # slight zoom-in over clip duration (Ken Burns style)
-                    clip = clip.resize(lambda t: 1 + 0.04 * t)
-                elif effect == "Mirror":
-                    clip = clip.fx(mirror_x)
-                elif effect == "BlackWhite":
-                    clip = clip.fx(blackwhite)
+                clip = build_styled_clip(p, duration, effect, target_size, fade_dur)
                 clips.append(clip)
             video = concatenate_videoclips(clips, method="compose")
             if audio_path:
