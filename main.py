@@ -78,6 +78,7 @@ COLORS = {
 }
 
 STYLE_LABELS = {
+    "Random": "Random / 随机",
     "None": "None / 无",
     "Fade": "Fade / 淡入淡出",
     "Zoom": "Zoom / 缓慢推近",
@@ -183,7 +184,8 @@ class App(tk.Tk):
         self.audio_choice = tk.StringVar(value="random")
         self.duration_var = tk.StringVar(value="2.0")
         self.selected_music = tk.StringVar(value="Random / 随机")
-        self.effect_display_var = tk.StringVar(value=STYLE_LABELS["None"])
+        self.effect_display_var = tk.StringVar(value=STYLE_LABELS["Random"])
+        self.is_generating = False
 
         self._build_background()
         self._build_ui()
@@ -209,6 +211,29 @@ class App(tk.Tk):
         except Exception:
             pass
         self._set_status("Ready / 就绪")
+
+    def _set_busy_state(self, busy):
+        self.is_generating = busy
+
+        def walk_and_set_state(widget, state):
+            for child in widget.winfo_children():
+                try:
+                    if child.winfo_class() in {"Button", "Radiobutton", "Entry", "Menubutton"}:
+                        child.configure(state=state)
+                except Exception:
+                    pass
+                walk_and_set_state(child, state)
+
+        if busy:
+            walk_and_set_state(self.content, "disabled")
+            self.busy_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+            self.busy_overlay.lift()
+            self.update_idletasks()
+            self._set_status("Generating... / 正在生成，请稍候...")
+        else:
+            self.busy_overlay.place_forget()
+            walk_and_set_state(self.content, "normal")
+            self._set_status("Ready / 就绪")
 
     def _build_background(self):
         self.bg_canvas = tk.Canvas(self, bg=COLORS["window_bg"], highlightthickness=0, bd=0)
@@ -291,6 +316,12 @@ class App(tk.Tk):
             secondary=True,
             font=("SF Pro Text", 12),
         ).pack(anchor="w", padx=22, pady=(0, 18))
+        self._make_label(
+            header,
+            "风格未选自动随机 / If style is not selected, a random style will be used",
+            secondary=True,
+            font=("SF Pro Text", 10),
+        ).pack(anchor="w", padx=22, pady=(0, 14))
 
         media_card, media = self._make_card(self.content)
         media_card.pack(fill="x", padx=18, pady=12)
@@ -376,7 +407,7 @@ class App(tk.Tk):
         ).grid(row=0, column=1, sticky="w", padx=(10, 24))
 
         self._make_label(settings_row, "Style / 风格", font=("SF Pro Text", 11, "bold")).grid(row=0, column=2, sticky="w")
-        choices = [STYLE_LABELS[key] for key in ["None", "Fade", "Zoom", "Mirror", "BlackWhite"] + self.external_styles]
+        choices = [STYLE_LABELS[key] for key in ["Random", "None", "Fade", "Zoom", "Mirror", "BlackWhite"] + self.external_styles]
         self.effect_menu = tk.OptionMenu(settings_row, self.effect_display_var, *choices)
         self.effect_menu.config(
             width=24,
@@ -400,6 +431,16 @@ class App(tk.Tk):
         self._make_button(btn_frame, "Export Logs / 导出日志", self.export_logs, width=230, height=54).pack(side='left', padx=12)
         self.status = self._make_label(footer, "Ready / 就绪", secondary=True, font=("SF Pro Text", 11), wraplength=760, justify="left")
         self.status.pack(anchor="w", padx=20, pady=(0, 16))
+
+        # Gray overlay while generating to prevent repeated clicks.
+        self.busy_overlay = tk.Frame(self.content, bg="#d3dbe7", bd=0, highlightthickness=0)
+        tk.Label(
+            self.busy_overlay,
+            text="Generating video, please wait... / 正在生成视频，请稍候...",
+            bg="#d3dbe7",
+            fg=COLORS["text_primary"],
+            font=("SF Pro Text", 12, "bold"),
+        ).pack(expand=True)
 
     def _set_status(self, text):
         if hasattr(self, "status"):
@@ -450,6 +491,9 @@ class App(tk.Tk):
             pass
 
     def start_generate(self):
+        if self.is_generating:
+            messagebox.showinfo("Busy / 忙碌中", "Video is already generating.\n正在生成中，请勿重复点击。")
+            return
         if not self.images:
             messagebox.showerror("Error / 错误", "Please select at least one image.\n请至少选择一张图片。")
             return
@@ -491,12 +535,14 @@ class App(tk.Tk):
         out_dir = os.path.expanduser("~/Downloads")
         ts = time.strftime("%Y%m%d-%H%M%S")
         out_path = os.path.join(out_dir, f"video_{ts}.mp4")
-        selected_effect = next((key for key, label in STYLE_LABELS.items() if label == self.effect_display_var.get()), "None")
+        selected_effect = next((key for key, label in STYLE_LABELS.items() if label == self.effect_display_var.get()), "Random")
+        if selected_effect == "Random":
+            selected_effect = random.choice(["None", "Fade", "Zoom", "Mirror", "BlackWhite"] + self.external_styles)
 
         # Run generation in thread
+        self._set_busy_state(True)
         t = threading.Thread(target=self.generate_video, args=(self.images, duration, audio_path, out_path, selected_effect), daemon=True)
         t.start()
-        self._set_status("Generating... / 正在生成...")
 
     def generate_video(self, images, duration, audio_path, out_path, effect):
         try:
@@ -558,8 +604,8 @@ class App(tk.Tk):
                             with open('/tmp/vg_run.log', 'a') as lg:
                                 lg.write(proc.stdout or '')
                             if proc.returncode == 0 and os.path.isfile(out_path):
-                                self._set_status(f"Saved / 已保存: {out_path}")
-                                messagebox.showinfo("Done / 完成", f"Video saved to:\n{out_path}\n\n视频已保存到以上路径。")
+                                self.after(0, lambda: self._set_status(f"Saved / 已保存: {out_path}"))
+                                self.after(0, lambda: messagebox.showinfo("Done / 完成", f"Video saved to:\n{out_path}\n\n视频已保存到以上路径。"))
                                 return
                             with open('/tmp/vg_run.log', 'a') as lg:
                                 lg.write(f'External script failed or no output, fallback style for {effect}\n')
@@ -652,8 +698,8 @@ class App(tk.Tk):
                 pass
             try:
                 video.write_videofile(out_path, fps=24, codec="libx264", audio_codec="aac", threads=4, verbose=False)
-                self._set_status(f"Saved / 已保存: {out_path}")
-                messagebox.showinfo("Done / 完成", f"Video saved to:\n{out_path}\n\n视频已保存到以上路径。")
+                self.after(0, lambda: self._set_status(f"Saved / 已保存: {out_path}"))
+                self.after(0, lambda: messagebox.showinfo("Done / 完成", f"Video saved to:\n{out_path}\n\n视频已保存到以上路径。"))
             finally:
                 try:
                     if old_cwd:
@@ -665,8 +711,10 @@ class App(tk.Tk):
             with open('/tmp/vg_run.log', 'a') as lg:
                 lg.write(f'Failed to generate video: {e}\n')
                 traceback.print_exc(file=lg)
-            messagebox.showerror("Error / 错误", f"Failed to generate video:\n{e}\n\nDetails written to /tmp/vg_run.log\n详细日志已写入 /tmp/vg_run.log")
-            self._set_status("Error / 出错")
+            self.after(0, lambda: messagebox.showerror("Error / 错误", f"Failed to generate video:\n{e}\n\nDetails written to /tmp/vg_run.log\n详细日志已写入 /tmp/vg_run.log"))
+            self.after(0, lambda: self._set_status("Error / 出错"))
+        finally:
+            self.after(0, lambda: self._set_busy_state(False))
 
 def export_files_list(src_files, dst_dir):
     for p in src_files:
