@@ -58,23 +58,23 @@ from video_layout import choose_output_profile, build_styled_clip
 
 
 COLORS = {
-    "window_bg": "#e7edf6",
-    "window_glow": "#f6fbff",
-    "card_bg": "#f8fbff",
+    "window_bg": "#c7dcf6",
+    "window_glow": "#ffffff",
+    "card_bg": "#eef6ff",
     "card_edge": "#ffffff",
-    "card_shadow": "#c8d5e8",
-    "text_primary": "#1b3551",
-    "text_secondary": "#69809d",
-    "accent": "#dbeafe",
-    "accent_active": "#c8ddfb",
-    "accent_border": "#97bdf3",
+    "card_shadow": "#9fb9dd",
+    "text_primary": "#103257",
+    "text_secondary": "#54789f",
+    "accent": "#dcebff",
+    "accent_active": "#c7ddff",
+    "accent_border": "#79aaee",
     "button_text": "#123b66",
-    "button_secondary_bg": "#fbfdff",
-    "button_secondary_active": "#eef4fb",
-    "button_secondary_border": "#d5e1f2",
-    "input_bg": "#fcfdff",
-    "input_border": "#d8e3f2",
-    "input_active": "#edf4ff",
+    "button_secondary_bg": "#f2f8ff",
+    "button_secondary_active": "#e0edff",
+    "button_secondary_border": "#b7cdee",
+    "input_bg": "#f4f9ff",
+    "input_border": "#b5ccec",
+    "input_active": "#e4f0ff",
 }
 
 STYLE_LABELS = {
@@ -176,6 +176,11 @@ class App(tk.Tk):
         self.geometry("920x700")
         self.minsize(880, 660)
         self.configure(bg=COLORS["window_bg"])
+        try:
+            # Stronger "frosted glass" feeling for the full window.
+            self.attributes("-alpha", 0.94)
+        except Exception:
+            pass
         self.images = []
         self.audio_path = None
         self.audio_folder = None
@@ -238,17 +243,35 @@ class App(tk.Tk):
     def _build_background(self):
         self.bg_canvas = tk.Canvas(self, bg=COLORS["window_bg"], highlightthickness=0, bd=0)
         self.bg_canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.bg_canvas.create_oval(-120, -80, 320, 280, fill="#f4f9ff", outline="")
-        self.bg_canvas.create_oval(560, 40, 980, 420, fill="#dbe8fb", outline="")
-        self.bg_canvas.create_oval(120, 460, 540, 880, fill="#edf3ff", outline="")
-        self.bg_canvas.create_rectangle(18, 18, 902, 682, outline="#ffffff", width=1)
-        self.bg_canvas.create_rectangle(20, 20, 900, 680, outline="#edf4ff", width=1)
-        self.bg_canvas.create_line(28, 30, 892, 30, fill="#ffffff")
+        # Strong frosted gradient background.
+        gradient = [
+            "#ecf5ff", "#e9f3ff", "#e7f1ff", "#e4efff", "#e2edff", "#dfeaff",
+            "#dde8ff", "#dae6ff", "#d8e4ff", "#d5e2ff", "#d3e0ff", "#d0deff",
+        ]
+        for i in range(44):
+            y1 = i * 18
+            y2 = y1 + 18
+            col = gradient[min(i // 4, len(gradient) - 1)]
+            self.bg_canvas.create_rectangle(0, y1, 940, y2, fill=col, outline="")
+        self.bg_canvas.create_oval(-200, -140, 360, 320, fill="#ffffff", outline="")
+        self.bg_canvas.create_oval(420, -60, 1160, 520, fill="#d9e9ff", outline="")
+        self.bg_canvas.create_oval(-80, 360, 660, 1000, fill="#eaf4ff", outline="")
+        self.bg_canvas.create_oval(560, 300, 1220, 960, fill="#d7e8ff", outline="")
+        # One-piece glass slab with pronounced highlight edge.
+        self.bg_canvas.create_rectangle(8, 8, 912, 692, fill="#edf5ff", outline="#ffffff", width=2, stipple="gray25")
+        self.bg_canvas.create_rectangle(10, 10, 910, 690, outline="#ffffff", width=2)
+        self.bg_canvas.create_rectangle(13, 13, 907, 687, outline="#edf5ff", width=1)
+        self.bg_canvas.create_rectangle(20, 20, 900, 680, outline="#b7ccea", width=1)
+        self.bg_canvas.create_line(24, 24, 896, 24, fill="#ffffff", width=3)
+        self.bg_canvas.create_line(24, 29, 896, 29, fill="#f0f7ff", width=2)
+        self.bg_canvas.create_line(24, 675, 896, 675, fill="#a8c0df", width=1)
 
     def _make_card(self, parent):
-        outer = tk.Frame(parent, bg=COLORS["card_shadow"], bd=0, highlightthickness=0)
+        outer = tk.Frame(parent, bg=COLORS["window_bg"], bd=0, highlightthickness=0)
+        shell = tk.Frame(outer, bg=COLORS["card_shadow"], bd=0, highlightthickness=0)
+        shell.pack(fill="both", expand=True, padx=2, pady=2)
         inner = tk.Frame(
-            outer,
+            shell,
             bg=COLORS["card_bg"],
             bd=0,
             highlightbackground=COLORS["card_edge"],
@@ -256,10 +279,28 @@ class App(tk.Tk):
             highlightthickness=1,
         )
         inner.pack(fill="both", expand=True, padx=1, pady=1)
+        tk.Frame(inner, bg="#ffffff", height=3).pack(fill="x", side="top")
+        tk.Frame(inner, bg="#edf5ff", height=2).pack(fill="x", side="top")
+        tk.Frame(inner, bg="#dce9fb", height=1).pack(fill="x", side="bottom")
+        # Corner masks to fake rounded glass card edges in Tkinter.
+        corner_r = 12
+        for relx, rely, start in [(0, 0, 90), (1, 0, 0), (0, 1, 180), (1, 1, 270)]:
+            c = tk.Canvas(shell, width=corner_r, height=corner_r, bg=COLORS["window_bg"], highlightthickness=0, bd=0)
+            c.place(relx=relx, rely=rely, anchor=("nw" if relx == 0 and rely == 0 else "ne" if relx == 1 and rely == 0 else "sw" if relx == 0 else "se"))
+            c.create_arc(
+                -corner_r,
+                -corner_r,
+                corner_r * 2,
+                corner_r * 2,
+                start=start,
+                extent=90,
+                fill=COLORS["card_bg"],
+                outline=COLORS["card_bg"],
+            )
         return outer, inner
 
     def _make_button(self, parent, text, command, width=220, height=46, primary=False):
-        # Prefer native Button for click reliability on macOS packaged app.
+        # Keep native button for reliability, but style it as glass.
         bg = COLORS["accent"] if primary else COLORS["button_secondary_bg"]
         active_bg = COLORS["accent_active"] if primary else COLORS["button_secondary_active"]
         border = COLORS["accent_border"] if primary else COLORS["button_secondary_border"]
@@ -273,9 +314,9 @@ class App(tk.Tk):
             activeforeground=COLORS["button_text"],
             relief="flat",
             bd=0,
-            highlightthickness=1,
+            highlightthickness=2,
             highlightbackground=border,
-            highlightcolor=border,
+            highlightcolor="#ffffff",
             padx=14,
             pady=max(8, int(height / 6)),
             width=max(10, int(width / 12)),
@@ -378,8 +419,9 @@ class App(tk.Tk):
             activebackground=COLORS["input_active"],
             activeforeground=COLORS["text_primary"],
             relief="flat",
-            highlightthickness=1,
+            highlightthickness=2,
             highlightbackground=COLORS["input_border"],
+            highlightcolor="#ffffff",
             font=("SF Pro Text", 11),
             )
         self.music_menu["menu"].config(bg=COLORS["input_bg"], fg=COLORS["text_primary"], activebackground=COLORS["input_active"], activeforeground=COLORS["text_primary"], font=("SF Pro Text", 11))
@@ -400,8 +442,9 @@ class App(tk.Tk):
             bg=COLORS["input_bg"],
             fg=COLORS["text_primary"],
             relief="flat",
-            highlightthickness=1,
+            highlightthickness=2,
             highlightbackground=COLORS["input_border"],
+            highlightcolor="#ffffff",
             font=("SF Pro Text", 11),
             insertbackground=COLORS["text_primary"],
         ).grid(row=0, column=1, sticky="w", padx=(10, 24))
@@ -416,19 +459,33 @@ class App(tk.Tk):
             activebackground=COLORS["input_active"],
             activeforeground=COLORS["text_primary"],
             relief="flat",
-            highlightthickness=1,
+            highlightthickness=2,
             highlightbackground=COLORS["input_border"],
+            highlightcolor="#ffffff",
             font=("SF Pro Text", 11),
         )
         self.effect_menu["menu"].config(bg=COLORS["input_bg"], fg=COLORS["text_primary"], activebackground=COLORS["input_active"], activeforeground=COLORS["text_primary"], font=("SF Pro Text", 11))
         self.effect_menu.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        self._make_label(
+            settings_row,
+            "风格未选自动随机 / If style is not selected, random style is used",
+            secondary=True,
+            font=("SF Pro Text", 10, "bold"),
+        ).grid(row=1, column=2, columnspan=2, sticky="w", pady=(8, 0))
 
         footer_card, footer = self._make_card(self.content)
         footer_card.pack(fill="x", padx=18, pady=(12, 18))
         btn_frame = tk.Frame(footer, bg=COLORS["card_bg"])
         btn_frame.pack(fill="x", padx=20, pady=(16, 10))
-        self._make_button(btn_frame, "Generate Video / 生成视频", self.start_generate, width=250, height=54, primary=True).pack(side='left')
-        self._make_button(btn_frame, "Export Logs / 导出日志", self.export_logs, width=230, height=54).pack(side='left', padx=12)
+        # Keep action area from being squeezed into a thin line on smaller layouts.
+        btn_frame.configure(height=70)
+        btn_frame.pack_propagate(False)
+        btn_frame.grid_columnconfigure(0, weight=1)
+        btn_frame.grid_columnconfigure(1, weight=1)
+        gen_btn = self._make_button(btn_frame, "Generate Video / 生成视频", self.start_generate, width=250, height=54, primary=True)
+        gen_btn.grid(row=0, column=0, sticky="ew", padx=(0, 8), pady=6)
+        log_btn = self._make_button(btn_frame, "Export Logs / 导出日志", self.export_logs, width=230, height=54)
+        log_btn.grid(row=0, column=1, sticky="ew", padx=(8, 0), pady=6)
         self.status = self._make_label(footer, "Ready / 就绪", secondary=True, font=("SF Pro Text", 11), wraplength=760, justify="left")
         self.status.pack(anchor="w", padx=20, pady=(0, 16))
 
